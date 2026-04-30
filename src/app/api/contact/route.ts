@@ -4,10 +4,10 @@ import type { ServerResponse } from 'http'
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL
 
-function sendResendEmail(data: { to: string; replyTo: string; subject: string; html: string }): Promise<{ success: boolean; id?: string }> {
+function sendResendEmail(data: { fromName: string; to: string; replyTo: string; subject: string; html: string }): Promise<{ success: boolean; id?: string }> {
   return new Promise((resolve) => {
     const postData = JSON.stringify({
-      from: 'ivanbajuyo <onboarding@resend.dev>',
+      from: `${data.fromName} <onboarding@resend.dev>`,
       to: data.to,
       reply_to: data.replyTo,
       subject: data.subject,
@@ -83,6 +83,7 @@ export async function POST(request: Request) {
     let emailResult = { success: false }
     if (RESEND_API_KEY && ADMIN_EMAIL) {
       emailResult = await sendResendEmail({
+        fromName: cleanName,
         to: ADMIN_EMAIL,
         replyTo: cleanEmail,
         subject: `New Inquiry from ${cleanName} — ${cleanCompany}`,
