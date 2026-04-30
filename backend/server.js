@@ -27,7 +27,7 @@ async function sendResendEmail({ to, replyTo, subject, html }) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Tip Top Distribution <onboarding@resend.dev>',
+        from: 'ivanbajuyo <onboarding@resend.dev>',
         to,
         replyTo,
         subject,
