@@ -3,11 +3,13 @@ import type { ServerResponse } from 'http'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL
+const FROM_NAME = process.env.FROM_NAME || 'Ivan Bajuyo'
+const FROM_EMAIL = process.env.FROM_EMAIL || 'onboarding@resend.dev'
 
 function sendResendEmail(data: { fromName: string; to: string; replyTo: string; subject: string; html: string }): Promise<{ success: boolean; id?: string }> {
   return new Promise((resolve) => {
     const postData = JSON.stringify({
-      from: `${data.fromName} <onboarding@resend.dev>`,
+      from: `${FROM_NAME} <${FROM_EMAIL}>`,
       to: data.to,
       reply_to: data.replyTo,
       subject: data.subject,

@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -50,5 +51,15 @@ test
 prompt
 
 server.log
+
+# Sandbox-only files (not needed for production)
+/db/
+/download/
+/worklog.md
+/Caddyfile
+mini-services/
+/examples/
+/upload/
+
 # Skills directory
 /skills/
