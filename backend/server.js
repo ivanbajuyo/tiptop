@@ -9,59 +9,43 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-// ─── Supabase (optional — falls back to local JSON storage) ─────────
-let supabase = null;
-let supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-
-if (supabaseUrl && supabaseKey) {
-  try {
-    const { createClient } = require('@supabase/supabase-js');
-    supabase = createClient(supabaseUrl, supabaseKey);
-    console.log('✅ Supabase client initialized');
-  } catch (err) {
-    console.warn('⚠️ Failed to initialize Supabase, using local storage fallback');
-    supabase = null;
-    supabaseUrl = null;
-  }
-} else {
-  console.warn('⚠️ SUPABASE_URL or SUPABASE_SERVICE_KEY not set — using local JSON storage');
-  supabaseUrl = null;
-}
-
-// ─── Local JSON storage fallback ─────────────────────────────────────
-const DATA_FILE = path.join(__dirname, 'inquiries.json');
-
-function readLocalInquiries() {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalInquiries(inquiries) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(inquiries, null, 2), 'utf8');
-}
-
-// ─── Email Configuration (Resend) ────────────────────────────────────
+// ─── Email Configuration (Resend REST API) ─────────────────────────
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-let resend = null;
-if (RESEND_API_KEY) {
-  try {
-    const { Resend } = require('resend');
-    resend = new Resend(RESEND_API_KEY);
-    console.log('✅ Resend email service initialized');
-  } catch (err) {
-    console.warn('⚠️ Failed to initialize Resend');
+async function sendResendEmail({ to, replyTo, subject, html }) {
+  if (!RESEND_API_KEY || !ADMIN_EMAIL) {
+    console.warn('⚠️ RESEND_API_KEY or ADMIN_EMAIL not set');
+    return null;
   }
-} else {
-  console.warn('⚠️ RESEND_API_KEY not set - emails will not be sent');
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'Tip Top Distribution <onboarding@resend.dev>',
+        to,
+        replyTo,
+        subject,
+        html,
+      }),
+    });
+
+    const result = await res.json();
+    if (!res.ok) {
+      console.error('❌ Resend API error:', result);
+    } else {
+      console.log(`📧 Email sent to ${to}! ID: ${result.id}`);
+    }
+    return result;
+  } catch (err) {
+    console.error('❌ Resend fetch error:', err.message);
+    return null;
+  }
 }
 
 const allowedOrigins = [
@@ -88,13 +72,12 @@ app.use(express.json());
 
 // ─── Routes ─────────────────────────────────────────────────────────
 
-// Health check — Render uses this to confirm your service is alive
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'tiptop-api',
     timestamp: new Date().toISOString(),
-    supabase: supabaseUrl ? 'connected' : 'not configured (local storage)',
+    email: RESEND_API_KEY ? 'resend configured' : 'not configured',
   });
 });
 
@@ -103,7 +86,6 @@ app.post('/api/contact', async (req, res) => {
   try {
     const { name, company, email, message } = req.body;
 
-    // Validate
     if (!name || !company || !email || !message) {
       return res.status(400).json({ error: 'All fields are required' });
     }
@@ -114,127 +96,52 @@ app.post('/api/contact', async (req, res) => {
     }
 
     if (message.length < 10) {
-      return res.status(400).json({
-        error: 'Message must be at least 10 characters.',
-      });
+      return res.status(400).json({ error: 'Message must be at least 10 characters.' });
     }
 
-    // Sanitize — truncate to prevent abuse
     const cleanName = String(name).slice(0, 100);
     const cleanCompany = String(company).slice(0, 200);
     const cleanEmail = String(email).slice(0, 200);
     const cleanMessage = String(message).slice(0, 5000);
 
-    let inquiryId;
+    console.log(`✅ New inquiry from ${cleanEmail} (${cleanCompany})`);
 
-    if (supabase) {
-      // Save to Supabase
-      const { data, error } = await supabase
-        .from('contact_inquiries')
-        .insert([{
-          name: cleanName,
-          company: cleanCompany,
-          email: cleanEmail,
-          message: cleanMessage,
-        }])
-        .select();
+    // Send email notification via Resend
+    await sendResendEmail({
+      to: ADMIN_EMAIL,
+      replyTo: cleanEmail,
+      subject: `New Inquiry from ${cleanName} — ${cleanCompany}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); padding: 24px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: white; margin: 0; font-size: 20px;">New Contact Inquiry</h1>
+            <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-size: 14px;">Tip Top Distribution, Inc.</p>
+          </div>
+          <div style="background: #f9fafb; padding: 20px; border-left: 4px solid #10B981;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+              <tr><td style="padding: 8px 0; color: #6b7280; width: 120px;"><strong>From</strong></td><td style="padding: 8px 0;">${cleanName}</td></tr>
+              <tr><td style="padding: 8px 0; color: #6b7280;"><strong>Email</strong></td><td style="padding: 8px 0;"><a href="mailto:${cleanEmail}" style="color: #10B981;">${cleanEmail}</a></td></tr>
+              <tr><td style="padding: 8px 0; color: #6b7280;"><strong>Company</strong></td><td style="padding: 8px 0;">${cleanCompany}</td></tr>
+            </table>
+          </div>
+          <div style="padding: 20px;">
+            <h3 style="color: #1f2937; margin: 0 0 12px 0; font-size: 16px;">Message:</h3>
+            <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; font-size: 14px; line-height: 1.6; color: #374151; white-space: pre-wrap;">${cleanMessage}</div>
+          </div>
+          <div style="padding: 16px 20px; background: #f9fafb; border-radius: 0 0 12px 12px; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0; font-size: 12px; color: #6b7280;"><strong>Reply to:</strong> <a href="mailto:${cleanEmail}" style="color: #10B981;">${cleanEmail}</a></p>
+          </div>
+        </div>
+      `,
+    });
 
-      if (error) {
-        console.error('Supabase insert error:', error);
-        return res.status(500).json({
-          error: 'Failed to save inquiry. Please try again.',
-        });
-      }
-
-      inquiryId = data?.[0]?.id;
-    } else {
-      // Fallback: save to local JSON file
-      const inquiries = readLocalInquiries();
-      inquiryId = inquiries.length > 0 ? Math.max(...inquiries.map(i => i.id)) + 1 : 1;
-      inquiries.unshift({
-        id: inquiryId,
-        name: cleanName,
-        company: cleanCompany,
-        email: cleanEmail,
-        message: cleanMessage,
-        created_at: new Date().toISOString(),
-      });
-      writeLocalInquiries(inquiries);
-    }
-
-    console.log(`✅ New inquiry #${inquiryId} from ${cleanEmail}`);
-
-    // Send email notification to admin using Resend
-    if (ADMIN_EMAIL && resend) {
-      console.log(`📧 Attempting to send email to ${ADMIN_EMAIL}...`);
-      try {
-        await resend.emails.send({
-          from: 'noreply@resend.dev',
-          to: ADMIN_EMAIL,
-          subject: `New Inquiry from ${cleanName}`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #1f2937;">New Contact Inquiry</h2>
-              <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 16px 0;">
-                <p><strong>ID:</strong> #${inquiryId}</p>
-                <p><strong>From:</strong> ${cleanName}</p>
-                <p><strong>Email:</strong> <a href="mailto:${cleanEmail}">${cleanEmail}</a></p>
-                <p><strong>Company:</strong> ${cleanCompany}</p>
-              </div>
-              <h3 style="color: #1f2937; margin-top: 24px;">Message:</h3>
-              <p style="white-space: pre-wrap; background: #f9fafb; padding: 12px; border-left: 4px solid #10b981; border-radius: 4px;">
-                ${cleanMessage}
-              </p>
-              <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;">
-              <p style="color: #6b7280; font-size: 12px;">
-                <strong>Reply to:</strong> ${cleanEmail}
-              </p>
-            </div>
-          `,
-        });
-
-        console.log(`📧 Email sent to ${ADMIN_EMAIL}`);
-      } catch (emailError) {
-        console.error('❌ Resend email error:', emailError);
-      }
-    }
-
-    return res.status(200).json({ success: true, id: inquiryId });
-
+    return res.status(200).json({ success: true });
   } catch (err) {
     console.error('Server error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET — Fetch all inquiries (admin use — protect with auth in production)
-app.get('/api/inquiries', async (_req, res) => {
-  try {
-    if (supabase) {
-      const { data, error } = await supabase
-        .from('contact_inquiries')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
-
-      if (error) {
-        console.error('Supabase fetch error:', error);
-        return res.status(500).json({ error: 'Failed to fetch inquiries' });
-      }
-
-      return res.json({ success: true, count: data.length, data });
-    } else {
-      // Fallback: read from local JSON
-      const inquiries = readLocalInquiries();
-      return res.json({ success: true, count: inquiries.length, data: inquiries });
-    }
-  } catch (err) {
-    console.error('Server error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// 404 for everything else
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
@@ -242,8 +149,5 @@ app.use((_req, res) => {
 // ─── Start ──────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🚀 Tip Top API running on port ${PORT}`);
-  console.log(`   Health: http://localhost:${PORT}/api/health`);
-  console.log(`   Contact: POST http://localhost:${PORT}/api/contact`);
-  console.log(`   Inquiries: GET http://localhost:${PORT}/api/inquiries`);
-  console.log(`   Storage: ${supabaseUrl ? 'Supabase' : 'Local JSON file'}\n`);
+  console.log(`   Email: ${RESEND_API_KEY ? 'Resend configured' : 'Not configured'}\n`);
 });

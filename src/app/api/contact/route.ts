@@ -1,12 +1,40 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { Resend } from 'resend'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL
 
-// Initialize Resend client
-const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null
+async function sendResendEmail(data: {
+  to: string
+  replyTo: string
+  subject: string
+  html: string
+}) {
+  if (!RESEND_API_KEY || !ADMIN_EMAIL) return null
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'Tip Top Distribution <onboarding@resend.dev>',
+      to: data.to,
+      replyTo: data.replyTo,
+      subject: data.subject,
+      html: data.html,
+    }),
+  })
+
+  const result = await res.json()
+  if (!res.ok) {
+    console.error('❌ Resend API error:', result)
+  } else {
+    console.log(`📧 Email sent successfully! ID: ${result.id}`)
+  }
+  return result
+}
 
 export async function POST(request: Request) {
   try {
@@ -54,70 +82,59 @@ export async function POST(request: Request) {
 
     console.log(`✅ New inquiry #${inquiry.id} from ${cleanEmail}`)
 
-    // Send email notification to admin via Resend
-    if (resend && ADMIN_EMAIL) {
-      console.log(`📧 Sending email to ${ADMIN_EMAIL} via Resend...`)
-      try {
-        const { data, error } = await resend.emails.send({
-          from: 'Tip Top Distribution <onboarding@resend.dev>',
-          to: ADMIN_EMAIL,
-          replyTo: cleanEmail,
-          subject: `New Inquiry from ${cleanName} — ${cleanCompany}`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); padding: 24px; border-radius: 12px 12px 0 0;">
-                <h1 style="color: white; margin: 0; font-size: 20px;">New Contact Inquiry</h1>
-                <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-size: 14px;">Tip Top Distribution, Inc.</p>
-              </div>
-
-              <div style="background: #f9fafb; padding: 20px; border-left: 4px solid #10B981; margin: 0;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                  <tr>
-                    <td style="padding: 8px 0; color: #6b7280; width: 120px; vertical-align: top;"><strong>ID</strong></td>
-                    <td style="padding: 8px 0;">#${inquiry.id}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #6b7280; vertical-align: top;"><strong>From</strong></td>
-                    <td style="padding: 8px 0;">${cleanName}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #6b7280; vertical-align: top;"><strong>Email</strong></td>
-                    <td style="padding: 8px 0;"><a href="mailto:${cleanEmail}" style="color: #10B981;">${cleanEmail}</a></td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #6b7280; vertical-align: top;"><strong>Company</strong></td>
-                    <td style="padding: 8px 0;">${cleanCompany}</td>
-                  </tr>
-                </table>
-              </div>
-
-              <div style="padding: 20px;">
-                <h3 style="color: #1f2937; margin: 0 0 12px 0; font-size: 16px;">Message:</h3>
-                <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; font-size: 14px; line-height: 1.6; color: #374151; white-space: pre-wrap;">${cleanMessage}</div>
-              </div>
-
-              <div style="padding: 16px 20px; background: #f9fafb; border-radius: 0 0 12px 12px; border-top: 1px solid #e5e7eb;">
-                <p style="margin: 0; font-size: 12px; color: #6b7280;">
-                  <strong>Reply to:</strong> <a href="mailto:${cleanEmail}" style="color: #10B981;">${cleanEmail}</a>
-                </p>
-                <p style="margin: 8px 0 0 0; font-size: 11px; color: #9ca3af;">
-                  This inquiry was submitted via the Tip Top Distribution website.
-                </p>
-              </div>
+    // Send email notification to admin via Resend REST API
+    try {
+      await sendResendEmail({
+        to: ADMIN_EMAIL!,
+        replyTo: cleanEmail,
+        subject: `New Inquiry from ${cleanName} — ${cleanCompany}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); padding: 24px; border-radius: 12px 12px 0 0;">
+              <h1 style="color: white; margin: 0; font-size: 20px;">New Contact Inquiry</h1>
+              <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-size: 14px;">Tip Top Distribution, Inc.</p>
             </div>
-          `,
-        })
 
-        if (error) {
-          console.error('❌ Resend error:', error)
-        } else {
-          console.log(`📧 Email sent successfully! ID: ${data?.id}`)
-        }
-      } catch (emailError) {
-        console.error('❌ Resend exception:', emailError)
-      }
-    } else {
-      console.warn(`⚠️ Email NOT sent. RESEND_API_KEY=${RESEND_API_KEY ? 'set' : 'missing'}, ADMIN_EMAIL=${ADMIN_EMAIL || 'missing'}`)
+            <div style="background: #f9fafb; padding: 20px; border-left: 4px solid #10B981; margin: 0;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; width: 120px; vertical-align: top;"><strong>ID</strong></td>
+                  <td style="padding: 8px 0;">#${inquiry.id}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; vertical-align: top;"><strong>From</strong></td>
+                  <td style="padding: 8px 0;">${cleanName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; vertical-align: top;"><strong>Email</strong></td>
+                  <td style="padding: 8px 0;"><a href="mailto:${cleanEmail}" style="color: #10B981;">${cleanEmail}</a></td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; vertical-align: top;"><strong>Company</strong></td>
+                  <td style="padding: 8px 0;">${cleanCompany}</td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="padding: 20px;">
+              <h3 style="color: #1f2937; margin: 0 0 12px 0; font-size: 16px;">Message:</h3>
+              <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; font-size: 14px; line-height: 1.6; color: #374151; white-space: pre-wrap;">${cleanMessage}</div>
+            </div>
+
+            <div style="padding: 16px 20px; background: #f9fafb; border-radius: 0 0 12px 12px; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0; font-size: 12px; color: #6b7280;">
+                <strong>Reply to:</strong> <a href="mailto:${cleanEmail}" style="color: #10B981;">${cleanEmail}</a>
+              </p>
+              <p style="margin: 8px 0 0 0; font-size: 11px; color: #9ca3af;">
+                This inquiry was submitted via the Tip Top Distribution website.
+              </p>
+            </div>
+          </div>
+        `,
+      })
+    } catch (emailError) {
+      console.error('❌ Email send failed:', emailError)
+      // Don't fail the request — inquiry is still saved
     }
 
     return NextResponse.json(
