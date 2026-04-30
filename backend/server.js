@@ -12,10 +12,9 @@ const PORT = process.env.PORT || 4000;
 // ─── Email Configuration (Resend REST API) ─────────────────────────
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM_NAME = process.env.FROM_NAME || 'Ivan Bajuyo';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'onboarding@resend.dev';
 
-async function sendResendEmail({ to, replyTo, subject, html }) {
+async function sendResendEmail({ fromName, to, replyTo, subject, html }) {
   if (!RESEND_API_KEY || !ADMIN_EMAIL) {
     console.warn('⚠️ RESEND_API_KEY or ADMIN_EMAIL not set');
     return null;
@@ -29,7 +28,7 @@ async function sendResendEmail({ to, replyTo, subject, html }) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: `${FROM_NAME} <${FROM_EMAIL}>`,
+        from: `${fromName} <${FROM_EMAIL}>`,
         to,
         replyTo,
         subject,
@@ -110,6 +109,7 @@ app.post('/api/contact', async (req, res) => {
 
     // Send email notification via Resend
     await sendResendEmail({
+      fromName: cleanName,
       to: ADMIN_EMAIL,
       replyTo: cleanEmail,
       subject: `New Inquiry from ${cleanName} — ${cleanCompany}`,
